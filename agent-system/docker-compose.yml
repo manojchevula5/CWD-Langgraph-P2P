@@ -1,0 +1,100 @@
+version: '3.8'
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: agent-system-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - agent-network
+
+  coordinator:
+    build: .
+    container_name: coordinator-1
+    environment:
+      COORDINATOR_ID: coordinator-1
+      COORDINATOR_PORT: 8001
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      LOG_LEVEL: INFO
+    ports:
+      - "8001:8001"
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - agent-network
+    restart: unless-stopped
+
+  distributor:
+    build: .
+    container_name: distributor-1
+    environment:
+      DISTRIBUTOR_ID: distributor-1
+      DISTRIBUTOR_PORT: 8002
+      COORDINATOR_ID: coordinator-1
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      LOG_LEVEL: INFO
+    ports:
+      - "8002:8002"
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - agent-network
+    restart: unless-stopped
+
+  worker1:
+    build: .
+    container_name: worker-1
+    environment:
+      WORKER_ID: worker-1
+      WORKER_PORT: 8003
+      DISTRIBUTOR_ID: distributor-1
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      LOG_LEVEL: INFO
+    ports:
+      - "8003:8003"
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - agent-network
+    restart: unless-stopped
+
+  worker2:
+    build: .
+    container_name: worker-2
+    environment:
+      WORKER_ID: worker-2
+      WORKER_PORT: 8004
+      DISTRIBUTOR_ID: distributor-1
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      LOG_LEVEL: INFO
+    ports:
+      - "8004:8004"
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - agent-network
+    restart: unless-stopped
+
+volumes:
+  redis_data:
+
+networks:
+  agent-network:
+    driver: bridge
