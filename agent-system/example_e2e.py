@@ -42,6 +42,17 @@ def run_example():
 
     # Load environment variables from .env (if present) and initialize Redis configuration
     load_dotenv()
+    # -- User-provided Redis details (set as defaults; do not override existing env vars)
+    # If you prefer to keep secrets out of source, remove these and set via env/secret store.
+    os.environ.setdefault(
+        "REDIS_HOST",
+        "redis-aiops-dev-wus3-01.redis.cache.windows.net:6380",
+    )
+    os.environ.setdefault(
+        "REDIS_PASSWORD",
+        "xxx",
+    )
+    os.environ.setdefault("REDIS_USE_TLS", "true")
     # Support REDIS_HOST as host, host:port, or full URI (redis:// or rediss://)
     raw_redis_host = os.getenv("REDIS_HOST", "localhost")
     redis_port_env = os.getenv("REDIS_PORT")
