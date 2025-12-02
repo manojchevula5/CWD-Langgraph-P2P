@@ -42,12 +42,45 @@ def run_example():
 
     # Load environment variables from .env (if present) and initialize Redis configuration
     load_dotenv()
+    # Support REDIS_HOST as host, host:port, or full URI (redis:// or rediss://)
+    raw_redis_host = os.getenv("REDIS_HOST", "localhost")
+    redis_port_env = os.getenv("REDIS_PORT")
+    redis_password_env = os.getenv("REDIS_PASSWORD")
+    raw = raw_redis_host.strip()
+
+    redis_host = "localhost"
+    redis_port = 6379
+    redis_password = redis_password_env or None
+    use_tls = str(os.getenv("REDIS_USE_TLS", "false")).lower() in ("1", "true", "yes")
+
+    # If REDIS_HOST contains a URI like redis://host:port or rediss://host:port
+    if raw.startswith("redis://") or raw.startswith("rediss://"):
+        from urllib.parse import urlparse
+
+        p = urlparse(raw)
+        redis_host = p.hostname or "localhost"
+        redis_port = p.port or int(redis_port_env or 6379)
+        if p.password:
+            redis_password = p.password
+        use_tls = (p.scheme == "rediss") or use_tls
+    elif ":" in raw and not raw.startswith("["):
+        # simple host:port parsing (IPv6 addresses are not handled here)
+        host_part, port_part = raw.split(":", 1)
+        redis_host = host_part
+        try:
+            redis_port = int(port_part)
+        except ValueError:
+            redis_port = int(redis_port_env or 6379)
+    else:
+        redis_host = raw
+        redis_port = int(redis_port_env or 6379)
+
     redis_config = RedisConfig(
-        host=os.getenv("REDIS_HOST", "localhost"),
-        port=int(os.getenv("REDIS_PORT", "6379")),
+        host=redis_host,
+        port=redis_port,
         db=int(os.getenv("REDIS_DB", "0")),
-        password=os.getenv("REDIS_PASSWORD") or None,
-        use_tls=str(os.getenv("REDIS_USE_TLS", "false")).lower() in ("1", "true", "yes"),
+        password=redis_password or None,
+        use_tls=use_tls,
     )
 
     # Initialize A2A router for local testing

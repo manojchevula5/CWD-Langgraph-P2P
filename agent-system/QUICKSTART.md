@@ -132,12 +132,17 @@ Create `.env` file:
 cp .env.example .env
 ```
 
-Edit with your Redis connection:
+Edit with your Redis connection — you can supply either `host:port` or a
+Redis URI (`redis://` or `rediss://`) and set TLS via `REDIS_USE_TLS`:
 ```
-REDIS_HOST=redis.example.com
-REDIS_PORT=6379
+# Either host/port form
+REDIS_HOST=redis.example.com:6379
 REDIS_PASSWORD=your-password
 REDIS_USE_TLS=true
+
+# Or a Redis URI (includes password and scheme)
+REDIS_HOST=rediss://:your-password@redis-aiops-dev-wus3-01.redis.cache.windows.net:6380
+REDIS_DB=0
 ```
 
 ---
