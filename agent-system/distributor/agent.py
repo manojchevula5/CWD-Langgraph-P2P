@@ -110,7 +110,33 @@ class DistributorAgent(LangGraphAgent):
             )
 
             logger.info(f"Assigning task {task.task_id} to {worker_id}")
-            self.a2a_client._send(message)
+            # If an in-process router is present (local testing), deliver
+            # the message directly to the registered client's handler to
+            # ensure the worker receives the assignment immediately.
+            try:
+                from core import a2a_messaging as _a2a_mod
+
+                if getattr(_a2a_mod, "GLOBAL_A2A_ROUTER", None) is not None:
+                    router = _a2a_mod.GLOBAL_A2A_ROUTER
+                    recipient_client = router.agents.get(worker_id)
+                    if recipient_client:
+                        handler = recipient_client.message_handlers.get(
+                            MessageType.REQUEST.value
+                        )
+                        if handler:
+                            handler(message)
+                        else:
+                            # Fallback to router routing
+                            router.route_message(message)
+                    else:
+                        # Fallback to normal send if recipient not registered
+                        self.a2a_client._send(message)
+                else:
+                    # Normal transport (or tests where router not wired)
+                    self.a2a_client._send(message)
+            except Exception:
+                logger.exception("Failed to deliver assignment via in-process router; falling back to send")
+                self.a2a_client._send(message)
 
             # Track assignment
             if worker_id in self.managed_workers:

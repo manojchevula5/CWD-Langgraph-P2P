@@ -52,6 +52,9 @@ def run_example():
 
     # Initialize A2A router for local testing
     a2a_router = A2ARouter()
+    # Wire the router into the a2a messaging module so A2AClient._send routes messages
+    import core.a2a_messaging as _a2a_mod
+    _a2a_mod.GLOBAL_A2A_ROUTER = a2a_router
 
     # Create Coordinator
     coordinator_a2a_config = A2AConfig(

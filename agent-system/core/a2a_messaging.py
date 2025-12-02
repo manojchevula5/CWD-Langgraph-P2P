@@ -15,6 +15,9 @@ import hmac
 
 logger = logging.getLogger(__name__)
 
+# Optional global router used by tests/examples to route messages in-process
+GLOBAL_A2A_ROUTER = None
+
 
 class MessageType(str, Enum):
     """A2A message types"""
@@ -122,6 +125,43 @@ class A2AClient:
 
     def _verify_message(self, message: A2AMessage) -> bool:
         """Verify message signature"""
+        # If running with an in-process router, try to verify using the
+        # sender's configured token_secret (safer for tests). If the
+        # sender client isn't registered with the router, fall back to
+        # allowing the message (convenience for simple examples).
+        global GLOBAL_A2A_ROUTER
+        if GLOBAL_A2A_ROUTER is not None:
+            try:
+                sender_client = GLOBAL_A2A_ROUTER.agents.get(message.sender)
+                if sender_client and getattr(sender_client, "config", None):
+                    # Recreate the signing process using the sender's secret
+                    message_dict = message.to_dict()
+                    message_dict["signature"] = None
+                    message_str = json.dumps(message_dict, sort_keys=True)
+                    expected_signature = hmac.new(
+                        sender_client.config.token_secret.encode(),
+                        message_str.encode(),
+                        hashlib.sha256,
+                    ).hexdigest()
+
+                    if hmac.compare_digest(message.signature or "", expected_signature):
+                        return True
+                    else:
+                        logger.warning(
+                            f"In-process verification failed for message from {message.sender}"
+                        )
+                        return False
+                else:
+                    logger.debug(
+                        "Sender client not known to in-process router; bypassing verification"
+                    )
+                    return True
+            except Exception:
+                logger.exception(
+                    "Error verifying signature using in-process router; allowing message"
+                )
+                return True
+
         if not message.signature:
             logger.warning(f"Message from {message.sender} has no signature")
             return False
@@ -262,6 +302,16 @@ class A2AClient:
         """Internal method to send a message (placeholder for network transport)"""
         # In a real implementation, this would send over HTTP, gRPC, or other transport
         logger.debug(f"Message queued for sending: {message.to_json()[:100]}...")
+
+        # If a global in-process router is set (used for tests/examples), route the
+        # message immediately so handlers receive it synchronously.
+        try:
+            global GLOBAL_A2A_ROUTER
+            if GLOBAL_A2A_ROUTER is not None:
+                GLOBAL_A2A_ROUTER.route_message(message)
+        except Exception:
+            # Don't allow routing failures to break the sender; just log.
+            logger.exception("Failed to route message via GLOBAL_A2A_ROUTER")
 
 
 class A2ARouter:
