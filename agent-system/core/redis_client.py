@@ -41,6 +41,7 @@ class RedisClient:
         self.pubsub = None
         self._subscriptions: Dict[str, Callable] = {}
         self._listener_thread = None
+        self._listening = False
 
     @retry(
         stop=stop_after_attempt(3),
@@ -76,8 +77,17 @@ class RedisClient:
 
     def disconnect(self):
         """Close Redis connection"""
+        # Stop pubsub listener first
+        try:
+            self._stop_listener()
+        except Exception:
+            logger.exception("Error stopping pubsub listener")
+
         if self.client:
-            self.client.close()
+            try:
+                self.client.close()
+            except Exception:
+                logger.exception("Error closing redis client")
             logger.info("Disconnected from Redis")
 
     def set(self, key: str, value: Union[str, Dict, Any], ttl: Optional[int] = None) -> bool:
@@ -167,27 +177,71 @@ class RedisClient:
     def _start_listener(self):
         """Start listening for pub/sub messages"""
         def listen():
-            for message in self.pubsub.listen():
-                if message["type"] == "message":
-                    channel = message["channel"]
-                    data = message["data"]
-
-                    # Parse JSON if applicable
+            # Use a blocking listen loop but handle socket/connection errors
+            self._listening = True
+            try:
+                # Use get_message polling instead of blocking listen() to avoid
+                # issues when the underlying socket is closed during shutdown.
+                while self._listening:
                     try:
-                        data = json.loads(data)
-                    except (json.JSONDecodeError, TypeError):
-                        pass
+                        message = self.pubsub.get_message(timeout=1)
+                    except (OSError, ConnectionError, ValueError) as e:
+                        logger.info(f"PubSub get_message stopped due to connection error: {e}")
+                        break
 
-                    callback = self._subscriptions.get(channel)
-                    if callback:
-                        try:
-                            callback(channel, data)
-                        except Exception as e:
-                            logger.error(f"Error in subscription callback for {channel}: {e}")
+                    if not message:
+                        continue
+
+                    try:
+                        if message.get("type") == "message":
+                            channel = message["channel"]
+                            data = message["data"]
+
+                            # Parse JSON if applicable
+                            try:
+                                data = json.loads(data)
+                            except (json.JSONDecodeError, TypeError):
+                                pass
+
+                            callback = self._subscriptions.get(channel)
+                            if callback:
+                                try:
+                                    callback(channel, data)
+                                except Exception as e:
+                                    logger.error(
+                                        f"Error in subscription callback for {channel}: {e}"
+                                    )
+                    except Exception as e:
+                        logger.exception(f"Unexpected error in pubsub listener: {e}")
+                        continue
+            finally:
+                self._listening = False
 
         import threading
         self._listener_thread = threading.Thread(target=listen, daemon=True)
         self._listener_thread.start()
+
+    def _stop_listener(self):
+        """Stop the pubsub listener thread and close pubsub."""
+        self._listening = False
+        try:
+            if self.pubsub:
+                try:
+                    # Unsubscribe and close pubsub to unblock listener
+                    try:
+                        # attempt to unsubscribe from all channels first
+                        self.pubsub.unsubscribe()
+                    except Exception:
+                        pass
+                    self.pubsub.close()
+                except Exception:
+                    logger.exception("Error closing pubsub")
+
+            if self._listener_thread and self._listener_thread.is_alive():
+                # join briefly to allow thread to exit
+                self._listener_thread.join(timeout=2)
+        finally:
+            self._listener_thread = None
 
     def watch(self, key: str):
         """Watch a key for changes (for transactions)"""

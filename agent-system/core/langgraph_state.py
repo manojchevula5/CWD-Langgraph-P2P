@@ -157,6 +157,10 @@ class LocalAgentState:
         self.update_timestamp()
         logger.info(f"Agent {self.agent_id} status changed to {status.value}")
 
+    def get_pending_tasks(self) -> List[Task]:
+        """Return list of pending tasks in local state."""
+        return [t for t in self.local_tasks if t.status == TaskStatus.PENDING]
+
 
 @dataclass
 class SharedAgentState:
