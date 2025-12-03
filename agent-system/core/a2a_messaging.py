@@ -177,6 +177,7 @@ class A2AClient:
         parent_request_id: Optional[str] = None,
     ) -> A2AMessage:
         """Create and sign an A2A message"""
+        logger.debug(f"[create_message] ENTRY - recipient={recipient}, message_type={message_type.value}, payload_keys={list(payload.keys())}")
         self._sequence_number += 1
 
         metadata = CausalMetadata(
@@ -185,6 +186,7 @@ class A2AClient:
             parent_request_id=parent_request_id,
             sequence_number=self._sequence_number,
         )
+        logger.debug(f"[create_message] Metadata created - request_id={metadata.request_id}, seq={self._sequence_number}")
 
         message = A2AMessage(
             type=message_type,
@@ -193,8 +195,10 @@ class A2AClient:
             payload=payload,
             metadata=metadata,
         )
+        logger.debug(f"[create_message] Signing message")
 
         message.signature = self._sign_message(message)
+        logger.debug(f"[create_message] EXIT SUCCESS - Message created and signed")
         return message
 
     def send_request(
@@ -274,28 +278,35 @@ class A2AClient:
 
     def register_handler(self, message_type: MessageType, handler: Callable):
         """Register a handler for a message type"""
+        logger.info(f"[register_handler] ENTRY - message_type={message_type.value}, handler={handler.__name__}")
         self.message_handlers[message_type.value] = handler
-        logger.info(f"Registered handler for {message_type.value} messages")
+        logger.debug(f"[register_handler] EXIT SUCCESS - Handler registered for {message_type.value} messages")
 
     def handle_message(self, message: A2AMessage) -> bool:
         """Handle an incoming A2A message"""
+        logger.info(f"[handle_message] ENTRY - message_type={message.type.value}, sender={message.sender}, request_id={message.metadata.request_id}")
+        
         # Verify signature
+        logger.debug(f"[handle_message] Verifying message signature")
         if not self._verify_message(message):
-            logger.error(f"Message signature verification failed from {message.sender}")
+            logger.error(f"[handle_message] Message signature verification failed from {message.sender}")
             return False
+        logger.debug(f"[handle_message] Signature verified")
 
-        logger.info(f"Received {message.type.value} from {message.sender}")
+        logger.info(f"[handle_message] Received {message.type.value} from {message.sender}")
 
         handler = self.message_handlers.get(message.type.value)
         if handler:
             try:
+                logger.debug(f"[handle_message] Calling handler for {message.type.value}")
                 handler(message)
+                logger.info(f"[handle_message] EXIT SUCCESS - Message handled")
                 return True
             except Exception as e:
-                logger.error(f"Error handling {message.type.value} message: {e}")
+                logger.error(f"[handle_message] EXCEPTION - Error handling {message.type.value} message: {e}", exc_info=True)
                 return False
 
-        logger.warning(f"No handler registered for {message.type.value} messages")
+        logger.warning(f"[handle_message] No handler registered for {message.type.value} messages")
         return False
 
     def _send(self, message: A2AMessage):
@@ -329,17 +340,22 @@ class A2ARouter:
 
     def route_message(self, message: A2AMessage):
         """Route a message to its recipient"""
+        logger.debug(f"[route_message] ENTRY - recipient={message.recipient}, sender={message.sender}, type={message.type.value}")
         recipient_client = self.agents.get(message.recipient)
         if not recipient_client:
-            logger.error(f"No agent registered with ID {message.recipient}")
+            logger.error(f"[route_message] No agent registered with ID {message.recipient}")
             return False
 
         # Queue the message
+        logger.debug(f"[route_message] Queuing message")
         self.message_queue[message.recipient].append(message)
-        logger.info(f"Message routed to {message.recipient}")
+        logger.info(f"[route_message] Message routed to {message.recipient}")
 
         # Handle the message
-        return recipient_client.handle_message(message)
+        logger.debug(f"[route_message] Handling message")
+        result = recipient_client.handle_message(message)
+        logger.debug(f"[route_message] EXIT SUCCESS - routing result={result}")
+        return result
 
     def get_messages(self, agent_id: str) -> list:
         """Get pending messages for an agent"""

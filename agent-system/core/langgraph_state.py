@@ -110,14 +110,17 @@ class LocalAgentState:
 
     def add_task(self, task: Task):
         """Add a task to the local state"""
+        logger.debug(f"[add_task] ENTRY - task_id={task.task_id}, task_type={task.task_type}, status={task.status.value}")
         self.local_tasks.append(task)
         self.update_timestamp()
-        logger.info(f"Task {task.task_id} added to {self.agent_id}")
+        logger.info(f"[add_task] EXIT SUCCESS - Task {task.task_id} added to {self.agent_id}, total_tasks={len(self.local_tasks)}")
 
     def update_task(self, task_id: str, task_update: Dict[str, Any]):
         """Update a task in the local state"""
+        logger.debug(f"[update_task] ENTRY - task_id={task_id}, update_keys={list(task_update.keys())}")
         for task in self.local_tasks:
             if task.task_id == task_id:
+                old_status = task.status.value
                 for key, value in task_update.items():
                     if key == "status":
                         task.status = TaskStatus(value)
@@ -125,8 +128,9 @@ class LocalAgentState:
                         setattr(task, key, value)
                 task.updated_at = datetime.utcnow().isoformat()
                 self.update_timestamp()
-                logger.info(f"Task {task_id} updated in {self.agent_id}")
+                logger.info(f"[update_task] EXIT SUCCESS - Task {task_id} updated, status: {old_status} -> {task.status.value}")
                 return True
+        logger.debug(f"[update_task] Task {task_id} not found")
         return False
 
     def get_task(self, task_id: str) -> Optional[Task]:
@@ -153,9 +157,10 @@ class LocalAgentState:
 
     def set_status(self, status: AgentStatus):
         """Set agent status"""
+        logger.debug(f"[set_status] ENTRY - agent_id={self.agent_id}, old_status={self.status.value}, new_status={status.value}")
         self.status = status
         self.update_timestamp()
-        logger.info(f"Agent {self.agent_id} status changed to {status.value}")
+        logger.info(f"[set_status] EXIT SUCCESS - Agent {self.agent_id} status changed to {status.value}")
 
     def get_pending_tasks(self) -> List[Task]:
         """Return list of pending tasks in local state."""

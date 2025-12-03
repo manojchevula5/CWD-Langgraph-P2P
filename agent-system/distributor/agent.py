@@ -51,42 +51,54 @@ class DistributorAgent(LangGraphAgent):
 
     def initialize(self) -> bool:
         """Initialize distributor"""
+        logger.info(f"[initialize] ENTRY - Initializing distributor {self.agent_id}")
         try:
             # Connect to Redis
+            logger.debug(f"[initialize] Connecting to Redis at {self.redis_client.config.host}:{self.redis_client.config.port}")
             self.redis_client.connect()
+            logger.debug(f"[initialize] Redis connected successfully")
 
             # Initialize shared state
+            logger.debug(f"[initialize] Updating shared state")
             self._update_shared_state()
+            logger.debug(f"[initialize] Shared state updated")
 
             # Subscribe to shared state updates from coordinator
+            logger.debug(f"[initialize] Subscribing to coordinator updates channel: {self.shared_state_key}:updates")
             self.redis_client.subscribe(
                 f"{self.shared_state_key}:updates",
                 self._on_coordinator_update,
             )
+            logger.debug(f"[initialize] Subscription successful")
 
             self.local_state.set_status(AgentStatus.IDLE)
-            logger.info(f"Distributor {self.agent_id} initialized")
+            logger.info(f"[initialize] EXIT SUCCESS - Distributor {self.agent_id} initialized, status=IDLE")
             return True
         except Exception as e:
-            logger.error(f"Failed to initialize distributor: {e}")
+            logger.error(f"[initialize] EXCEPTION - Failed to initialize distributor: {e}", exc_info=True)
             return False
 
     def register_worker(self, worker_id: str) -> bool:
         """Register a worker"""
+        logger.info(f"[register_worker] ENTRY - worker_id={worker_id}")
         try:
+            logger.debug(f"[register_worker] Creating worker entry in managed_workers")
             self.managed_workers[worker_id] = {
                 "status": AgentStatus.IDLE.value,
                 "last_heartbeat": datetime.utcnow().isoformat(),
                 "assigned_tasks": [],
             }
+            logger.debug(f"[register_worker] Worker entry created")
 
+            logger.debug(f"[register_worker] Assigning worker in shared state")
             self.shared_state.assign_worker(worker_id)
             self._update_shared_state()
+            logger.debug(f"[register_worker] Shared state updated")
 
-            logger.info(f"Worker {worker_id} registered")
+            logger.info(f"[register_worker] EXIT SUCCESS - Worker {worker_id} registered, total_workers={len(self.managed_workers)}")
             return True
         except Exception as e:
-            logger.error(f"Failed to register worker: {e}")
+            logger.error(f"[register_worker] EXCEPTION - Failed to register worker: {e}", exc_info=True)
             return False
 
     def assign_task_to_worker(self, task: Task, worker_id: str) -> bool:
@@ -280,24 +292,31 @@ class DistributorAgent(LangGraphAgent):
 
     def _handle_worker_failure(self, worker_id: str):
         """Handle worker failure"""
+        logger.info(f"[_handle_worker_failure] ENTRY - worker_id={worker_id}")
         try:
-            logger.info(f"Handling failure of {worker_id}")
-
+            logger.debug(f"[_handle_worker_failure] Retrieving assigned tasks")
             # Get assigned tasks
             assigned_tasks = self.managed_workers.get(worker_id, {}).get(
                 "assigned_tasks", []
             )
+            logger.debug(f"[_handle_worker_failure] Found {len(assigned_tasks)} assigned tasks")
 
             # Mark tasks as failed in local state
+            failed_count = 0
             for task_id in assigned_tasks:
                 task = self.local_state.get_task(task_id)
                 if task and task.status == TaskStatus.IN_PROGRESS:
+                    logger.debug(f"[_handle_worker_failure] Marking task {task_id} as failed")
                     task.mark_failed(f"Worker {worker_id} failed")
+                    failed_count += 1
 
             # Update shared state
+            logger.debug(f"[_handle_worker_failure] Updating shared state")
             self._update_shared_state()
+            logger.debug(f"[_handle_worker_failure] Shared state updated")
 
             # Notify coordinator of failures
+            logger.debug(f"[_handle_worker_failure] Creating failure notification message")
             failed_tasks = [task_id for task_id in assigned_tasks]
             message = self.a2a_client.create_message(
                 self.coordinator_id,
@@ -308,8 +327,11 @@ class DistributorAgent(LangGraphAgent):
                 },
                 MessageType.EVENT,
             )
+            logger.debug(f"[_handle_worker_failure] Sending failure message")
             self.a2a_client._send(message)
+            logger.info(f"[_handle_worker_failure] Failure notification sent")
 
+            logger.debug(f"[_handle_worker_failure] Adding history entry")
             self.local_state.add_history_entry(
                 {
                     "action": "worker_failure",
@@ -317,8 +339,9 @@ class DistributorAgent(LangGraphAgent):
                     "failed_tasks": failed_tasks,
                 }
             )
+            logger.info(f"[_handle_worker_failure] EXIT SUCCESS - {failed_count} tasks marked as failed")
         except Exception as e:
-            logger.error(f"Error handling worker failure: {e}")
+            logger.error(f"[_handle_worker_failure] EXCEPTION - Error handling worker failure: {e}", exc_info=True)
 
     def _handle_request(self, message):
         """Handle request messages from Coordinator"""
